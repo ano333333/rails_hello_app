@@ -1,9 +1,11 @@
 class User < ApplicationRecord
+  attr_accessor :remember_token, :activation_token
+
   has_many :microposts, dependent: :destroy
 
-  attr_accessor :remember_token
+  before_save :downcase_email
+  before_create :create_activation_digest
 
-  before_save { email.downcase! }
   validates :name, presence: true, length: { maximum: 50 }
   VALID_EMAIL_REGEX = /\A[\w+\-.]+@[a-z\d\-.]+\.[a-z]+\z/i
   validates :email, presence: true, length: { maximum: 255 },
@@ -35,10 +37,19 @@ class User < ApplicationRecord
     remember_digest || remember
   end
 
-  def authenticated?(remember_token)
-    return false if remember_digest.nil?
+  def authenticated?(attribute, token)
+    digest = send("#{attribute}_digest")
+    return false if digest.nil?
 
-    BCrypt::Password.new(remember_digest).is_password?(remember_token)
+    BCrypt::Password.new(digest).is_password?(token)
+  end
+
+  def activate
+    update_columns(activated: true, activated_at: Time.zone.now)
+  end
+
+  def send_activation_email
+    UserMailer.account_activation(self).deliver_now
   end
 
   def forget
@@ -47,5 +58,16 @@ class User < ApplicationRecord
 
   def feed
     Micropost.where('user_id = ?', id)
+  end
+
+  private
+
+  def downcase_email
+    email.downcase!
+  end
+
+  def create_activation_digest
+    self.activation_token = User.new_token
+    self.activation_digest = User.digest(activation_token)
   end
 end
